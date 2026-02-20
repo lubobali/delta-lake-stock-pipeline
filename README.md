@@ -16,7 +16,7 @@ Polygon.io API  →  PySpark  →  Delta Table (partitioned by ticker + trade_da
 
 1. **Data Ingestion** — Fetches minute-level OHLCV bars (open, high, low, close, volume, VWAP) from Polygon.io REST API for AAPL, MSFT, GOOGL, AMZN, TSLA, META, NVDA, JPM
 2. **Delta Table Storage** — Writes to a Delta table partitioned by `(ticker, trade_date)` with proper schema including derived `trade_date` column
-3. **Table Maintenance** — Runs OPTIMIZE with Z-ORDER on ticker and trade_date, VACUUM for storage cleanup, and before/after health checks
+3. **Table Maintenance** — Runs OPTIMIZE with Z-ORDER on `timestamp_ms`, VACUUM for storage cleanup, and before/after health checks
 4. **External Table** — Registers the Delta table in Unity Catalog so other teams can query by name without knowing file paths
 
 ## Tech Stack
@@ -31,11 +31,11 @@ Polygon.io API  →  PySpark  →  Delta Table (partitioned by ticker + trade_da
 
 | Script | Description |
 |--------|-------------|
-| `fixed_stock_harvester.py` | Main pipeline — ingests stock data, writes partitioned Delta table |
+| `stock_harvester.py` | Main pipeline — ingests stock data, writes partitioned Delta table |
 | `maintenance.py` | OPTIMIZE, Z-ORDER, VACUUM, before/after health check |
 | `external_table.py` | External table creation (Unity Catalog + local simulation) |
-| `analysis.md` | Technical writeup — bug diagnosis, partitioning strategy, managed vs external tables |
 | `databricks_utils.py` | Environment detection — auto-switches between local PySpark and Databricks |
+| `DESIGN.md` | Technical writeup — partitioning strategy, managed vs external tables |
 
 ## Key Design Decisions
 
@@ -62,7 +62,7 @@ Upload files to workspace or connect as Git Folder. `databricks_utils.py` auto-d
 
 ```bash
 # 1. Ingest stock data (~2 min due to rate limiting)
-python fixed_stock_harvester.py
+python stock_harvester.py
 
 # 2. Run maintenance (OPTIMIZE + VACUUM + health check)
 python maintenance.py
@@ -89,12 +89,13 @@ Rows per ticker:
 +------+-----+
 ```
 
-## Bugs Found and Fixed
+## Design Decisions
 
-The original pipeline (`broken_stock_harvester.py`) had 3 critical bugs:
+See [DESIGN.md](DESIGN.md) for the full technical writeup covering partitioning strategy, managed vs external tables, and performance considerations.
 
-| Bug | Problem | Fix |
-|-----|---------|-----|
-| Overwrite in loop | `mode("overwrite")` inside for loop — each ticker destroyed the previous, only last ticker survived | Collect all data first, write once |
-| Minute-level partitioning | `partitionBy("ticker", "minute")` created ~15,600 tiny partition directories | Changed to `partitionBy("ticker", "trade_date")` — ~40 partitions |
-| No date column | Only raw `timestamp_ms` (epoch ms) — time queries required casting every time | Derived `trade_date` column from timestamp_ms |
+| Decision | Rationale |
+|----------|-----------|
+| `partitionBy("ticker", "trade_date")` | Matches query patterns — stock queries almost always filter by ticker or date. ~40 partitions vs thousands |
+| Z-ORDER on `timestamp_ms` | Partition columns already get pruned automatically. Z-ORDER on timestamp enables file-level skipping for time-range queries |
+| Derived `trade_date` column | Clean date column from raw epoch ms — enables partition pruning and readable queries |
+| 13s API delay + 429 retry | Polygon.io 5 calls/min limit. Fail-safe with automatic backoff |
