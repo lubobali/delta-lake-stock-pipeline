@@ -31,21 +31,19 @@ from delta import DeltaTable
 try:
     from databricks_utils import get_spark, get_base_path, cleanup_path, stop_spark_if_local, is_databricks
 except ModuleNotFoundError:
-    # Databricks environment — define utilities inline
     def is_databricks(): return True
-    def get_spark(): return spark  # noqa: F821 — global in Databricks
-    def get_base_path(subdir=""):
-        base = "/tmp/delta_stock_pipeline"
-        return f"{base}/{subdir}" if subdir else base
-    def cleanup_path(sp, path):
-        try: dbutils.fs.rm(path, recurse=True)  # noqa: F821
-        except Exception: pass
+    def get_spark(): return spark  # noqa: F821
+    def get_base_path(subdir=""): return None  # not used in Databricks mode
+    def cleanup_path(sp, path): pass
     def stop_spark_if_local(sp): pass
 
 POLYGON_API_KEY = "Em7xrXc5QX01uQqD29xxTrVZXfrrjC6Q"
 POLYGON_BASE_URL = "https://api.polygon.io/v2/aggs"
 
 TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "JPM"]
+
+# Databricks Unity Catalog table name
+UC_TABLE = "tabular.bootcamp.lubobali_stocks_fixed"
 
 # Rate limit: 5 API calls per minute
 API_CALL_DELAY_SECONDS = 13  # 60s / 5 calls = 12s minimum, use 13s for safety
@@ -99,7 +97,7 @@ def fetch_stock_data(ticker, from_date, to_date):
     return results
 
 
-def harvest_and_store(spark, table_path, days_back=5):
+def harvest_and_store(spark, days_back=5):
     """
     Harvest stock data and write to a Delta table.
 
@@ -162,24 +160,37 @@ def harvest_and_store(spark, table_path, days_back=5):
     # FIX #2: Partition by (ticker, trade_date) instead of (ticker, minute)
     # Daily partitions = manageable number of directories
     # 8 tickers * ~5 trading days = ~40 partitions (not thousands)
-    df_with_date.write.format("delta") \
-        .mode("overwrite") \
-        .partitionBy("ticker", "trade_date") \
-        .save(table_path)
+    if is_databricks():
+        spark.sql(f"DROP TABLE IF EXISTS {UC_TABLE}")
+        df_with_date.write.format("delta") \
+            .mode("overwrite") \
+            .partitionBy("ticker", "trade_date") \
+            .saveAsTable(UC_TABLE)
+        print(f"\nWrote {len(all_bars)} total bars to {UC_TABLE}")
+    else:
+        table_path = get_base_path("stocks_fixed")
+        cleanup_path(spark, table_path)
+        df_with_date.write.format("delta") \
+            .mode("overwrite") \
+            .partitionBy("ticker", "trade_date") \
+            .save(table_path)
+        print(f"\nWrote {len(all_bars)} total bars to {table_path}")
 
-    print(f"\nWrote {len(all_bars)} total bars to {table_path}")
     print(f"Tickers: {df_with_date.select('ticker').distinct().count()}")
     print(f"Date range: {df_with_date.agg({'trade_date': 'min'}).collect()[0][0]} to "
           f"{df_with_date.agg({'trade_date': 'max'}).collect()[0][0]}")
 
 
-def analyze_table(spark, table_path):
+def analyze_table(spark):
     """Read back the table and show what we have."""
     print("\n" + "=" * 60)
     print("TABLE ANALYSIS")
     print("=" * 60)
 
-    df = spark.read.format("delta").load(table_path)
+    if is_databricks():
+        df = spark.table(UC_TABLE)
+    else:
+        df = spark.read.format("delta").load(get_base_path("stocks_fixed"))
 
     print(f"\nTotal rows: {df.count()}")
     print(f"\nSchema:")
@@ -200,16 +211,12 @@ def analyze_table(spark, table_path):
 def main():
     spark = get_spark()
 
-    table_path = get_base_path("stocks_fixed")
-    cleanup_path(spark, table_path)
-
     print("=" * 60)
     print("STOCK DATA HARVESTER (FIXED)")
     print("=" * 60)
 
-    harvest_and_store(spark, table_path, days_back=5)
-
-    analyze_table(spark, table_path)
+    harvest_and_store(spark, days_back=5)
+    analyze_table(spark)
 
     stop_spark_if_local(spark)
     print("\nFixed harvester completed!")

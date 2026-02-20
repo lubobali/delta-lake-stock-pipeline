@@ -5,8 +5,9 @@ External Table Creation
 Make the corrected stock data queryable as an external table.
 
 Supports both environments:
-- Databricks: Creates an external table in Unity Catalog
-- Local: Simulates with a temporary view registered via SQL
+- Databricks: The fixed table is already a managed table in Unity Catalog.
+  We create a view to demonstrate the external access pattern.
+- Local: Simulates with a temporary view registered via SQL.
 
 Managed vs External tables:
 - Managed: Databricks owns both metadata AND data files.
@@ -24,49 +25,53 @@ try:
 except ModuleNotFoundError:
     def is_databricks(): return True
     def get_spark(): return spark  # noqa: F821
-    def get_base_path(subdir=""):
-        base = "/tmp/delta_stock_pipeline"
-        return f"{base}/{subdir}" if subdir else base
+    def get_base_path(subdir=""): return None
     def stop_spark_if_local(sp): pass
 
+UC_TABLE = "tabular.bootcamp.lubobali_stocks_fixed"
+UC_VIEW = "tabular.bootcamp.lubobali_stocks_external"
 
-def create_external_table_databricks(spark, fixed_table_path):
-    """Create an external table in Unity Catalog (Databricks environment)."""
-    CATALOG = "tabular"
-    SCHEMA = "stocks"
 
-    print(f"Creating external table in {CATALOG}.{SCHEMA}...")
+def create_external_table_databricks(spark):
+    """Create an external view in Unity Catalog (Databricks environment)."""
+    print(f"Creating view {UC_VIEW} from managed table {UC_TABLE}...")
 
-    spark.sql(f"USE CATALOG {CATALOG}")
-    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}")
-
+    spark.sql(f"DROP VIEW IF EXISTS {UC_VIEW}")
     spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.stocks_external
-        USING DELTA
-        LOCATION '{fixed_table_path}'
-        COMMENT 'Fixed stock OHLCV data from Polygon.io — external table'
+        CREATE VIEW {UC_VIEW}
+        AS SELECT * FROM {UC_TABLE}
     """)
 
-    print(f"External table created: {CATALOG}.{SCHEMA}.stocks_external")
+    print(f"View created: {UC_VIEW}")
 
     # Query through catalog name
     print("\nQuerying via Unity Catalog:")
     spark.sql(f"""
         SELECT ticker, trade_date, COUNT(*) as bar_count,
                MIN(low) as day_low, MAX(high) as day_high
-        FROM {CATALOG}.{SCHEMA}.stocks_external
+        FROM {UC_VIEW}
         GROUP BY ticker, trade_date
         ORDER BY ticker, trade_date
     """).show(truncate=False)
 
+    # Additional analytics
+    print("\nTop 5 highest volume days across all tickers:")
+    spark.sql(f"""
+        SELECT ticker, trade_date,
+               SUM(volume) as total_volume,
+               ROUND(AVG(vwap), 2) as avg_vwap
+        FROM {UC_VIEW}
+        GROUP BY ticker, trade_date
+        ORDER BY total_volume DESC
+        LIMIT 5
+    """).show(truncate=False)
 
-def create_external_table_local(spark, fixed_table_path):
+
+def create_external_table_local(spark):
     """Simulate external table pattern locally with a temp view."""
+    fixed_table_path = get_base_path("stocks_fixed")
     print(f"Creating simulated external table from: {fixed_table_path}")
 
-    # Register a temp view pointing to the Delta table path
-    # This simulates what an external table does: other consumers query
-    # by name without knowing the underlying file path.
     spark.sql(f"""
         CREATE OR REPLACE TEMPORARY VIEW stocks_external
         AS SELECT * FROM delta.`{fixed_table_path}`
@@ -74,7 +79,6 @@ def create_external_table_local(spark, fixed_table_path):
 
     print("Temporary view 'stocks_external' created")
 
-    # Query through the view name (just like querying a catalog table)
     print("\nQuerying via view name (simulates Unity Catalog access):")
     spark.sql("""
         SELECT ticker, trade_date, COUNT(*) as bar_count,
@@ -84,7 +88,6 @@ def create_external_table_local(spark, fixed_table_path):
         ORDER BY ticker, trade_date
     """).show(truncate=False)
 
-    # Show additional analytics to demonstrate the table works
     print("\nTop 5 highest volume days across all tickers:")
     spark.sql("""
         SELECT ticker, trade_date,
@@ -103,25 +106,14 @@ def create_external_table_local(spark, fixed_table_path):
 def main():
     spark = get_spark()
 
-    fixed_table_path = get_base_path("stocks_fixed")
-
     print("=" * 60)
     print("EXTERNAL TABLE CREATION")
     print("=" * 60)
 
-    # Verify the fixed table exists
-    try:
-        DeltaTable.forPath(spark, fixed_table_path)
-    except Exception:
-        print(f"\nError: Fixed table not found at {fixed_table_path}")
-        print("Run fixed_stock_harvester.py first!")
-        stop_spark_if_local(spark)
-        return
-
     if is_databricks():
-        create_external_table_databricks(spark, fixed_table_path)
+        create_external_table_databricks(spark)
     else:
-        create_external_table_local(spark, fixed_table_path)
+        create_external_table_local(spark)
 
     stop_spark_if_local(spark)
     print("\nExternal table creation completed!")

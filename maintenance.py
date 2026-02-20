@@ -19,25 +19,28 @@ try:
 except ModuleNotFoundError:
     def is_databricks(): return True
     def get_spark(): return spark  # noqa: F821
-    def get_base_path(subdir=""):
-        base = "/tmp/delta_stock_pipeline"
-        return f"{base}/{subdir}" if subdir else base
+    def get_base_path(subdir=""): return None
     def stop_spark_if_local(sp): pass
+
+UC_TABLE = "tabular.bootcamp.lubobali_stocks_fixed"
 
 
 class StockTableHealthCheck:
     """Health check utility for the stock Delta table."""
 
-    def __init__(self, spark, table_path):
+    def __init__(self, spark):
         self.spark = spark
-        self.table_path = table_path
-        self.delta_table = DeltaTable.forPath(spark, table_path)
+        if is_databricks():
+            self.delta_table = DeltaTable.forName(spark, UC_TABLE)
+        else:
+            self.table_path = get_base_path("stocks_fixed")
+            self.delta_table = DeltaTable.forPath(spark, self.table_path)
 
     def get_file_statistics(self):
         """Get statistics about data files."""
         if is_databricks():
             detail = self.spark.sql(
-                f"DESCRIBE DETAIL delta.`{self.table_path}`"
+                f"DESCRIBE DETAIL {UC_TABLE}"
             ).collect()[0]
             num_files = detail['numFiles']
             total_size = detail['sizeInBytes']
@@ -69,15 +72,17 @@ class StockTableHealthCheck:
 
     def get_row_count(self):
         """Get total row count."""
+        if is_databricks():
+            return self.spark.table(UC_TABLE).count()
         return self.spark.read.format("delta").load(self.table_path).count()
 
     def get_ticker_counts(self):
         """Get row counts per ticker."""
-        return (
-            self.spark.read.format("delta").load(self.table_path)
-            .groupBy("ticker").count()
-            .orderBy("ticker")
-        )
+        if is_databricks():
+            df = self.spark.table(UC_TABLE)
+        else:
+            df = self.spark.read.format("delta").load(self.table_path)
+        return df.groupBy("ticker").count().orderBy("ticker")
 
     def get_history(self):
         """Get full table history."""
@@ -104,22 +109,18 @@ class StockTableHealthCheck:
 def main():
     spark = get_spark()
 
-    table_path = get_base_path("stocks_fixed")
-
     print("=" * 60)
     print("STOCK TABLE MAINTENANCE")
     print("=" * 60)
 
-    # Verify the table exists
-    try:
+    # Get DeltaTable reference
+    if is_databricks():
+        delta_table = DeltaTable.forName(spark, UC_TABLE)
+    else:
+        table_path = get_base_path("stocks_fixed")
         delta_table = DeltaTable.forPath(spark, table_path)
-    except Exception as e:
-        print(f"\nError: Fixed table not found at {table_path}")
-        print("Run fixed_stock_harvester.py first!")
-        stop_spark_if_local(spark)
-        return
 
-    health = StockTableHealthCheck(spark, table_path)
+    health = StockTableHealthCheck(spark)
 
     # =========================================================================
     # BEFORE: Health Check
@@ -134,10 +135,10 @@ def main():
     health.get_ticker_counts().show()
 
     # =========================================================================
-    # 3a: OPTIMIZE with Z-ORDER
+    # OPTIMIZE with Z-ORDER
     # =========================================================================
     print("\n" + "-" * 60)
-    print("3a: RUNNING OPTIMIZE (Z-ORDER on ticker, trade_date)")
+    print("RUNNING OPTIMIZE (Z-ORDER on ticker, trade_date)")
     print("-" * 60)
 
     start = time.time()
@@ -146,14 +147,17 @@ def main():
     print(f"OPTIMIZE completed in {optimize_time:.2f} seconds")
 
     # =========================================================================
-    # 3b: VACUUM
+    # VACUUM
     # =========================================================================
     print("\n" + "-" * 60)
-    print("3b: RUNNING VACUUM (0 hours retention — demo only, use 168+ in production)")
+    print("RUNNING VACUUM (0 hours retention — demo only, use 168+ in production)")
     print("-" * 60)
 
     start = time.time()
-    spark.sql(f"VACUUM delta.`{table_path}` RETAIN 0 HOURS")
+    if is_databricks():
+        spark.sql(f"VACUUM {UC_TABLE} RETAIN 0 HOURS")
+    else:
+        spark.sql(f"VACUUM delta.`{table_path}` RETAIN 0 HOURS")
     vacuum_time = time.time() - start
     print(f"VACUUM completed in {vacuum_time:.2f} seconds")
 
@@ -164,18 +168,17 @@ def main():
     print("AFTER MAINTENANCE")
     print("-" * 60)
 
-    # Refresh the health checker after maintenance
-    health = StockTableHealthCheck(spark, table_path)
+    health = StockTableHealthCheck(spark)
     after_stats, after_rows = health.print_report("AFTER")
 
     print("Rows per ticker (verify no data lost):")
     health.get_ticker_counts().show()
 
     # =========================================================================
-    # 3c: Before/After Comparison
+    # Before/After Comparison
     # =========================================================================
     print("\n" + "-" * 60)
-    print("3c: BEFORE vs AFTER COMPARISON")
+    print("BEFORE vs AFTER COMPARISON")
     print("-" * 60)
 
     print(f"""
