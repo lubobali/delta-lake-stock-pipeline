@@ -158,7 +158,7 @@ def main():
     print("-" * 60)
 
     # Disable retention check so we can VACUUM at 0 hours for demo
-    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+    spark.sql("SET delta.retentionDurationCheck.enabled = false")
 
     start = time.time()
     if is_databricks():
