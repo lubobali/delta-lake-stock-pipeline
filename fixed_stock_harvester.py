@@ -35,7 +35,7 @@ except ModuleNotFoundError:
     def is_databricks(): return True
     def get_spark(): return spark  # noqa: F821 — global in Databricks
     def get_base_path(subdir=""):
-        base = "/Volumes/tabular/default/delta_stock_pipeline"
+        base = "/tmp/delta_stock_pipeline"
         return f"{base}/{subdir}" if subdir else base
     def cleanup_path(sp, path):
         try: dbutils.fs.rm(path, recurse=True)  # noqa: F821

@@ -38,7 +38,7 @@ def get_spark():
 
 def get_base_path(subdir=""):
     if is_databricks():
-        base = "/Volumes/tabular/default/delta_stock_pipeline"
+        base = "/tmp/delta_stock_pipeline"
     else:
         base = "./delta_tables"
         os.makedirs(base, exist_ok=True)
