@@ -154,16 +154,17 @@ def main():
     # VACUUM
     # =========================================================================
     print("\n" + "-" * 60)
-    print("RUNNING VACUUM (0 hours retention — demo only, use 168+ in production)")
+    print("RUNNING VACUUM (168 hours retention — production default)")
     print("-" * 60)
-
-    # Disable retention check so we can VACUUM at 0 hours for demo
-    spark.sql("SET delta.retentionDurationCheck.enabled = false")
+    # 168 hours (7 days) is the minimum safe retention period.
+    # Files older than 7 days that are no longer referenced get deleted.
+    # In local mode we use 0 hours with the safety check disabled for demo.
 
     start = time.time()
     if is_databricks():
-        spark.sql(f"VACUUM {UC_TABLE} RETAIN 0 HOURS")
+        spark.sql(f"VACUUM {UC_TABLE} RETAIN 168 HOURS")
     else:
+        spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
         spark.sql(f"VACUUM delta.`{table_path}` RETAIN 0 HOURS")
     vacuum_time = time.time() - start
     print(f"VACUUM completed in {vacuum_time:.2f} seconds")
