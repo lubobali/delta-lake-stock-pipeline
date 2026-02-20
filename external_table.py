@@ -49,9 +49,9 @@ def create_external_table_databricks(spark):
     data_location = detail['location']
     print(f"Managed table data location: {data_location}")
 
-    # Drop any previous external table or view with this name
-    spark.sql(f"DROP TABLE IF EXISTS {UC_EXTERNAL}")
+    # Drop any previous view or table with this name
     spark.sql(f"DROP VIEW IF EXISTS {UC_EXTERNAL}")
+    spark.sql(f"DROP TABLE IF EXISTS {UC_EXTERNAL}")
 
     print(f"\nCreating external table {UC_EXTERNAL}...")
     print(f"LOCATION: {data_location}")
