@@ -17,13 +17,17 @@ Managed vs External tables:
   Ideal for sharing data across teams without giving up ownership.
 """
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from delta import DeltaTable
 
-from databricks_utils import get_spark, get_base_path, stop_spark_if_local, is_databricks
+try:
+    from databricks_utils import get_spark, get_base_path, stop_spark_if_local, is_databricks
+except ModuleNotFoundError:
+    def is_databricks(): return True
+    def get_spark(): return spark  # noqa: F821
+    def get_base_path(subdir=""):
+        base = "/Volumes/tabular/default/delta_stock_pipeline"
+        return f"{base}/{subdir}" if subdir else base
+    def stop_spark_if_local(sp): pass
 
 
 def create_external_table_databricks(spark, fixed_table_path):

@@ -18,10 +18,6 @@ Bug 3: No trade_date column — only raw timestamp_ms (epoch milliseconds).
 Data Source: Polygon.io REST API (Aggregates endpoint)
 """
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import requests
 import time
 from datetime import datetime, timedelta
@@ -32,7 +28,19 @@ from pyspark.sql.types import (
 )
 from delta import DeltaTable
 
-from databricks_utils import get_spark, get_base_path, cleanup_path, stop_spark_if_local, is_databricks
+try:
+    from databricks_utils import get_spark, get_base_path, cleanup_path, stop_spark_if_local, is_databricks
+except ModuleNotFoundError:
+    # Databricks environment — define utilities inline
+    def is_databricks(): return True
+    def get_spark(): return spark  # noqa: F821 — global in Databricks
+    def get_base_path(subdir=""):
+        base = "/Volumes/tabular/default/delta_stock_pipeline"
+        return f"{base}/{subdir}" if subdir else base
+    def cleanup_path(sp, path):
+        try: dbutils.fs.rm(path, recurse=True)  # noqa: F821
+        except Exception: pass
+    def stop_spark_if_local(sp): pass
 
 POLYGON_API_KEY = "Em7xrXc5QX01uQqD29xxTrVZXfrrjC6Q"
 POLYGON_BASE_URL = "https://api.polygon.io/v2/aggs"
