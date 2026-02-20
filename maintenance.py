@@ -146,9 +146,12 @@ def main():
     # from file-level min/max skipping on this column.
 
     start = time.time()
-    delta_table.optimize().executeZOrderBy("timestamp_ms")
+    optimize_result = delta_table.optimize().executeZOrderBy("timestamp_ms")
     optimize_time = time.time() - start
     print(f"OPTIMIZE completed in {optimize_time:.2f} seconds")
+
+    print("\nOPTIMIZE operationMetrics:")
+    optimize_result.show(truncate=False)
 
     # =========================================================================
     # VACUUM
