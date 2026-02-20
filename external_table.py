@@ -28,8 +28,8 @@ except ModuleNotFoundError:
     def get_base_path(subdir=""): return None
     def stop_spark_if_local(sp): pass
 
-UC_TABLE = "tabular.bootcamp.lubobali_stocks_fixed"
-UC_VIEW = "tabular.bootcamp.lubobali_stocks_external"
+UC_TABLE = "main.default.lubobali_stocks_fixed"
+UC_VIEW = "main.default.lubobali_stocks_external"
 
 
 def create_external_table_databricks(spark):
