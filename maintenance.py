@@ -22,7 +22,7 @@ except ModuleNotFoundError:
     def get_base_path(subdir=""): return None
     def stop_spark_if_local(sp): pass
 
-UC_TABLE = "main.default.lubobali_stocks_fixed"
+UC_TABLE = "hive_metastore.default.lubobali_stocks_fixed"
 
 
 class StockTableHealthCheck:
