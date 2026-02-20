@@ -43,7 +43,7 @@ POLYGON_BASE_URL = "https://api.polygon.io/v2/aggs"
 TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "JPM"]
 
 # Databricks Unity Catalog table name
-UC_TABLE = "hive_metastore.default.lubobali_stocks_fixed"
+UC_TABLE = "tabular.dataexpert.lubobali_stocks_fixed"
 
 # Rate limit: 5 API calls per minute
 API_CALL_DELAY_SECONDS = 13  # 60s / 5 calls = 12s minimum, use 13s for safety

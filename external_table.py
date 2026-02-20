@@ -28,8 +28,8 @@ except ModuleNotFoundError:
     def get_base_path(subdir=""): return None
     def stop_spark_if_local(sp): pass
 
-UC_TABLE = "hive_metastore.default.lubobali_stocks_fixed"
-UC_VIEW = "hive_metastore.default.lubobali_stocks_external"
+UC_TABLE = "tabular.dataexpert.lubobali_stocks_fixed"
+UC_VIEW = "tabular.dataexpert.lubobali_stocks_external"
 
 
 def create_external_table_databricks(spark):
