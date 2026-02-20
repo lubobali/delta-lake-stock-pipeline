@@ -5,9 +5,13 @@ External Table Creation
 Make the corrected stock data queryable as an external table.
 
 Supports both environments:
-- Databricks: The fixed table is already a managed table in Unity Catalog.
-  We create a view to demonstrate the external access pattern.
-- Local: Simulates with a temporary view registered via SQL.
+- Databricks: Creates an external table in Unity Catalog by reading
+  the managed table's data location and registering a new table with
+  CREATE TABLE ... USING DELTA LOCATION. This proves the "data lives
+  outside the metastore" property — DROP TABLE removes only the catalog
+  entry, the parquet files at LOCATION remain untouched.
+- Local: Creates a true external table with USING DELTA LOCATION
+  pointing to the absolute filesystem path of the Delta table.
 
 Managed vs External tables:
 - Managed: Databricks owns both metadata AND data files.
@@ -18,6 +22,7 @@ Managed vs External tables:
   Ideal for sharing data across teams without giving up ownership.
 """
 
+import os
 from delta import DeltaTable
 
 try:
@@ -29,27 +34,43 @@ except ModuleNotFoundError:
     def stop_spark_if_local(sp): pass
 
 UC_TABLE = "tabular.dataexpert.lubobali_stocks_fixed"
-UC_VIEW = "tabular.dataexpert.lubobali_stocks_external"
+UC_EXTERNAL = "tabular.dataexpert.lubobali_stocks_external"
 
 
 def create_external_table_databricks(spark):
-    """Create an external view in Unity Catalog (Databricks environment)."""
-    print(f"Creating view {UC_VIEW} from managed table {UC_TABLE}...")
+    """Create a true external table in Unity Catalog (Databricks environment).
 
-    spark.sql(f"DROP VIEW IF EXISTS {UC_VIEW}")
+    Reads the managed table's storage location via DESCRIBE DETAIL,
+    then creates an external table pointing to that LOCATION.
+    """
+    print(f"Reading location of managed table {UC_TABLE}...")
+
+    detail = spark.sql(f"DESCRIBE DETAIL {UC_TABLE}").collect()[0]
+    data_location = detail['location']
+    print(f"Managed table data location: {data_location}")
+
+    # Drop any previous external table or view with this name
+    spark.sql(f"DROP TABLE IF EXISTS {UC_EXTERNAL}")
+    spark.sql(f"DROP VIEW IF EXISTS {UC_EXTERNAL}")
+
+    print(f"\nCreating external table {UC_EXTERNAL}...")
+    print(f"LOCATION: {data_location}")
     spark.sql(f"""
-        CREATE VIEW {UC_VIEW}
-        AS SELECT * FROM {UC_TABLE}
+        CREATE TABLE {UC_EXTERNAL}
+        USING DELTA
+        LOCATION '{data_location}'
     """)
 
-    print(f"View created: {UC_VIEW}")
+    print(f"External table created: {UC_EXTERNAL}")
+    print("This is a TRUE external table — DROP TABLE removes only the")
+    print("catalog entry. The parquet files at LOCATION remain untouched.")
 
     # Query through catalog name
     print("\nQuerying via Unity Catalog:")
     spark.sql(f"""
         SELECT ticker, trade_date, COUNT(*) as bar_count,
                MIN(low) as day_low, MAX(high) as day_high
-        FROM {UC_VIEW}
+        FROM {UC_EXTERNAL}
         GROUP BY ticker, trade_date
         ORDER BY ticker, trade_date
     """).show(truncate=False)
@@ -60,7 +81,7 @@ def create_external_table_databricks(spark):
         SELECT ticker, trade_date,
                SUM(volume) as total_volume,
                ROUND(AVG(vwap), 2) as avg_vwap
-        FROM {UC_VIEW}
+        FROM {UC_EXTERNAL}
         GROUP BY ticker, trade_date
         ORDER BY total_volume DESC
         LIMIT 5
@@ -68,18 +89,26 @@ def create_external_table_databricks(spark):
 
 
 def create_external_table_local(spark):
-    """Simulate external table pattern locally with a temp view."""
-    fixed_table_path = get_base_path("stocks_fixed")
-    print(f"Creating simulated external table from: {fixed_table_path}")
+    """Create a true external table locally with USING DELTA LOCATION."""
+    fixed_table_path = os.path.abspath(get_base_path("stocks_fixed"))
+    print(f"Creating external table from location: {fixed_table_path}")
 
+    # CREATE TABLE with LOCATION = true external table pattern.
+    # The data files live at this path. DROP TABLE removes only
+    # the catalog entry — files on disk remain untouched.
+    spark.sql("DROP TABLE IF EXISTS stocks_external")
     spark.sql(f"""
-        CREATE OR REPLACE TEMPORARY VIEW stocks_external
-        AS SELECT * FROM delta.`{fixed_table_path}`
+        CREATE TABLE stocks_external
+        USING DELTA
+        LOCATION '{fixed_table_path}'
     """)
 
-    print("Temporary view 'stocks_external' created")
+    print("External table 'stocks_external' created")
+    print(f"Data LOCATION: {fixed_table_path}")
+    print("DROP TABLE removes only the catalog entry.")
+    print("The parquet files at LOCATION remain untouched.")
 
-    print("\nQuerying via view name (simulates Unity Catalog access):")
+    print("\nQuerying via external table name:")
     spark.sql("""
         SELECT ticker, trade_date, COUNT(*) as bar_count,
                MIN(low) as day_low, MAX(high) as day_high
@@ -92,7 +121,7 @@ def create_external_table_local(spark):
     spark.sql("""
         SELECT ticker, trade_date,
                SUM(volume) as total_volume,
-               AVG(vwap) as avg_vwap
+               ROUND(AVG(vwap), 2) as avg_vwap
         FROM stocks_external
         GROUP BY ticker, trade_date
         ORDER BY total_volume DESC
