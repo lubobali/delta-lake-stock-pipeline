@@ -4,15 +4,6 @@ External Table Creation
 
 Make the corrected stock data queryable as an external table.
 
-Supports both environments:
-- Databricks: Creates an external table in Unity Catalog by reading
-  the managed table's data location and registering a new table with
-  CREATE TABLE ... USING DELTA LOCATION. This proves the "data lives
-  outside the metastore" property — DROP TABLE removes only the catalog
-  entry, the parquet files at LOCATION remain untouched.
-- Local: Creates a true external table with USING DELTA LOCATION
-  pointing to the absolute filesystem path of the Delta table.
-
 Managed vs External tables:
 - Managed: Databricks owns both metadata AND data files.
   DROP TABLE deletes everything (metadata + data).
@@ -20,6 +11,14 @@ Managed vs External tables:
   an external LOCATION you control (S3, ADLS, GCS, local path).
   DROP TABLE removes the catalog entry but data files remain untouched.
   Ideal for sharing data across teams without giving up ownership.
+
+Supports both environments:
+- Databricks: Attempts to create a true external table via
+  CREATE TABLE ... USING DELTA LOCATION. Requires an external location
+  and storage credential in Unity Catalog. If unavailable, falls back
+  to a view and explains why.
+- Local: Creates a true external table with USING DELTA LOCATION
+  pointing to the absolute filesystem path of the Delta table.
 """
 
 import os
@@ -38,32 +37,68 @@ UC_EXTERNAL = "tabular.dataexpert.lubobali_stocks_external"
 
 
 def create_external_table_databricks(spark):
-    """Create a true external table in Unity Catalog (Databricks environment).
+    """Create an external table in Unity Catalog (Databricks environment).
 
-    Reads the managed table's storage location via DESCRIBE DETAIL,
-    then creates an external table pointing to that LOCATION.
+    A true external table requires an external location and storage
+    credential configured in Unity Catalog. If not available, we fall
+    back to a view and show the CREATE TABLE ... LOCATION SQL that
+    would work with proper external storage.
     """
-    print(f"Reading location of managed table {UC_TABLE}...")
-
-    detail = spark.sql(f"DESCRIBE DETAIL {UC_TABLE}").collect()[0]
-    data_location = detail['location']
-    print(f"Managed table data location: {data_location}")
-
-    # Drop any previous view or table with this name
+    # Clean up any previous object with this name
     spark.sql(f"DROP VIEW IF EXISTS {UC_EXTERNAL}")
     spark.sql(f"DROP TABLE IF EXISTS {UC_EXTERNAL}")
 
-    print(f"\nCreating external table {UC_EXTERNAL}...")
-    print(f"LOCATION: {data_location}")
-    spark.sql(f"""
-        CREATE TABLE {UC_EXTERNAL}
-        USING DELTA
-        LOCATION '{data_location}'
-    """)
+    # Get managed table location to show the architecture
+    detail = spark.sql(f"DESCRIBE DETAIL {UC_TABLE}").collect()[0]
+    managed_location = detail['location']
+    print(f"Managed table location: {managed_location}")
 
-    print(f"External table created: {UC_EXTERNAL}")
-    print("This is a TRUE external table — DROP TABLE removes only the")
-    print("catalog entry. The parquet files at LOCATION remain untouched.")
+    # Attempt to create a true external table
+    # This requires an external location + storage credential in UC
+    external_created = False
+    try:
+        # In production, LOCATION would point to your own S3/ADLS bucket:
+        # CREATE TABLE ... USING DELTA LOCATION 's3://my-bucket/stocks_fixed'
+        # Here we attempt using the managed table's location to demonstrate:
+        spark.sql(f"""
+            CREATE TABLE {UC_EXTERNAL}
+            USING DELTA
+            LOCATION '{managed_location}'
+        """)
+        external_created = True
+        print(f"\nExternal table created: {UC_EXTERNAL}")
+        print(f"LOCATION: {managed_location}")
+    except Exception as e:
+        error_msg = str(e)
+        if "LOCATION_OVERLAP" in error_msg or "INVALID_PARAMETER_VALUE" in error_msg:
+            print("\nCannot create external table pointing to managed storage.")
+            print("This environment has no external location or storage credential.")
+            print("In production with an external S3/ADLS bucket, the SQL would be:")
+            print(f"""
+    CREATE TABLE {UC_EXTERNAL}
+    USING DELTA
+    LOCATION 's3://my-external-bucket/stocks_fixed'
+            """)
+            print("Falling back to a view for query demonstration...\n")
+            spark.sql(f"""
+                CREATE VIEW {UC_EXTERNAL}
+                AS SELECT * FROM {UC_TABLE}
+            """)
+            print(f"View created: {UC_EXTERNAL}")
+        else:
+            raise
+
+    # Explain the difference
+    if external_created:
+        print("This is a TRUE external table:")
+        print("  - DROP TABLE removes only the catalog entry")
+        print("  - Parquet files at LOCATION remain untouched")
+        print("  - Other teams query by name without knowing file paths")
+    else:
+        print("With a true external table (when external location is available):")
+        print("  - DROP TABLE removes only the catalog entry")
+        print("  - Parquet files at LOCATION remain untouched")
+        print("  - Other teams query by name without knowing file paths")
 
     # Query through catalog name
     print("\nQuerying via Unity Catalog:")
@@ -75,7 +110,6 @@ def create_external_table_databricks(spark):
         ORDER BY ticker, trade_date
     """).show(truncate=False)
 
-    # Additional analytics
     print("\nTop 5 highest volume days across all tickers:")
     spark.sql(f"""
         SELECT ticker, trade_date,
@@ -89,13 +123,15 @@ def create_external_table_databricks(spark):
 
 
 def create_external_table_local(spark):
-    """Create a true external table locally with USING DELTA LOCATION."""
+    """Create a true external table locally with USING DELTA LOCATION.
+
+    This is the real external table pattern — CREATE TABLE with LOCATION
+    points to data files on disk. DROP TABLE removes only the catalog
+    entry; the parquet files at LOCATION remain untouched.
+    """
     fixed_table_path = os.path.abspath(get_base_path("stocks_fixed"))
     print(f"Creating external table from location: {fixed_table_path}")
 
-    # CREATE TABLE with LOCATION = true external table pattern.
-    # The data files live at this path. DROP TABLE removes only
-    # the catalog entry — files on disk remain untouched.
     spark.sql("DROP TABLE IF EXISTS stocks_external")
     spark.sql(f"""
         CREATE TABLE stocks_external
