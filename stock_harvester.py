@@ -21,7 +21,7 @@ Data Source: Polygon.io REST API (Aggregates endpoint)
 import requests
 import time
 from datetime import datetime, timedelta
-from pyspark.sql.functions import col, lit, expr, to_date, date_format
+from pyspark.sql.functions import col, lit, expr, to_date, date_format, to_timestamp, from_utc_timestamp
 from pyspark.sql.types import (
     StructType, StructField, StringType, IntegerType,
     LongType, DoubleType
@@ -151,11 +151,16 @@ def harvest_and_store(spark, days_back=5):
     # Create DataFrame from ALL collected data
     df = spark.createDataFrame(all_bars, schema=STOCK_SCHEMA)
 
-    # FIX #3: Add trade_date column derived from timestamp_ms
-    df_with_date = df.withColumn(
-        "trade_date",
-        to_date((col("timestamp_ms") / 1000).cast("timestamp"))
-    )
+    # FIX #3: Add event_time and trade_date columns from timestamp_ms
+    # Step 1: UTC timestamp from epoch milliseconds
+    # Step 2: Convert to US/Eastern (market timezone) for correct trade_date
+    #         Without this, late-day trades near midnight UTC could land
+    #         on the wrong calendar date.
+    # Step 3: Derive trade_date from the market-timezone timestamp
+    df_with_date = df \
+        .withColumn("event_time_utc", to_timestamp(col("timestamp_ms") / 1000)) \
+        .withColumn("event_time_ny", from_utc_timestamp(col("event_time_utc"), "America/New_York")) \
+        .withColumn("trade_date", to_date(col("event_time_ny")))
 
     # FIX #2: Partition by (ticker, trade_date) instead of (ticker, minute)
     # Daily partitions = manageable number of directories
