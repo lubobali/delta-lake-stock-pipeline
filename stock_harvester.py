@@ -21,7 +21,7 @@ Data Source: Polygon.io REST API (Aggregates endpoint)
 import requests
 import time
 from datetime import datetime, timedelta
-from pyspark.sql.functions import col, lit, expr, to_date, date_format, to_timestamp, from_utc_timestamp
+from pyspark.sql.functions import col, lit, expr, to_date, date_format, from_utc_timestamp
 from pyspark.sql.types import (
     StructType, StructField, StringType, IntegerType,
     LongType, DoubleType
@@ -158,7 +158,7 @@ def harvest_and_store(spark, days_back=5):
     #         on the wrong calendar date.
     # Step 3: Derive trade_date from the market-timezone timestamp
     df_with_date = df \
-        .withColumn("event_time_utc", to_timestamp(col("timestamp_ms") / 1000)) \
+        .withColumn("event_time_utc", (col("timestamp_ms") / 1000).cast("timestamp")) \
         .withColumn("event_time_ny", from_utc_timestamp(col("event_time_utc"), "America/New_York")) \
         .withColumn("trade_date", to_date(col("event_time_ny")))
 
