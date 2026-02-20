@@ -117,7 +117,7 @@ def main():
     if is_databricks():
         delta_table = DeltaTable.forName(spark, UC_TABLE)
     else:
-        table_path = get_base_path("stocks_fixed")
+        table_path = os.path.abspath(get_base_path("stocks_fixed"))
         delta_table = DeltaTable.forPath(spark, table_path)
 
     health = StockTableHealthCheck(spark)
