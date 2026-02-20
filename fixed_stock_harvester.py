@@ -31,7 +31,7 @@ from delta import DeltaTable
 from databricks_utils import get_spark, get_base_path, cleanup_path, stop_spark_if_local, is_databricks
 
 POLYGON_API_KEY = "Em7xrXc5QX01uQqD29xxTrVZXfrrjC6Q"
-POLYGON_BASE_URL = "https://aggs.polygon.io/v2/aggs"
+POLYGON_BASE_URL = "https://api.polygon.io/v2/aggs"
 
 TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "JPM"]
 
