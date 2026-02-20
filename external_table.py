@@ -17,6 +17,10 @@ Managed vs External tables:
   Ideal for sharing data across teams without giving up ownership.
 """
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from delta import DeltaTable
 
 from databricks_utils import get_spark, get_base_path, stop_spark_if_local, is_databricks

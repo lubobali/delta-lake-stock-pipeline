@@ -18,6 +18,10 @@ Bug 3: No trade_date column — only raw timestamp_ms (epoch milliseconds).
 Data Source: Polygon.io REST API (Aggregates endpoint)
 """
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import requests
 import time
 from datetime import datetime, timedelta
