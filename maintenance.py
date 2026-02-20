@@ -138,11 +138,15 @@ def main():
     # OPTIMIZE with Z-ORDER
     # =========================================================================
     print("\n" + "-" * 60)
-    print("RUNNING OPTIMIZE (Z-ORDER on ticker, trade_date)")
+    print("RUNNING OPTIMIZE (Z-ORDER on timestamp_ms)")
     print("-" * 60)
+    # Note: ticker and trade_date are partition columns so Z-ORDER
+    # can only target non-partition data columns. timestamp_ms is
+    # the best candidate — queries filtering by time range benefit
+    # from file-level min/max skipping on this column.
 
     start = time.time()
-    delta_table.optimize().executeZOrderBy("ticker", "trade_date")
+    delta_table.optimize().executeZOrderBy("timestamp_ms")
     optimize_time = time.time() - start
     print(f"OPTIMIZE completed in {optimize_time:.2f} seconds")
 
