@@ -1,12 +1,11 @@
 """
-Stock Data Harvester - BROKEN (Homework Starter Code)
-=====================================================
+Stock Data Harvester - BROKEN (Original Version)
+=================================================
 
-This script fetches stock market data from the Polygon.io API and stores
-it in a Delta table. However, there are SEVERAL issues with how the data
-is being written and partitioned.
+This is the original broken script kept for reference.
+See fixed_stock_harvester.py for the corrected version.
 
-YOUR TASK: Identify and fix the problems in this script.
+Issues: data overwrite bug, over-partitioning, missing trade_date column.
 
 Data Source: Polygon.io REST API (Aggregates endpoint)
 """

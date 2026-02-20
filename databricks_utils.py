@@ -2,7 +2,7 @@
 Databricks Compatibility Utilities
 ===================================
 
-Shared utility module for the homework assignment.
+Shared utility module for the stock data pipeline.
 Works in both local PySpark and Databricks environments.
 """
 
@@ -38,7 +38,7 @@ def get_spark():
 
 def get_base_path(subdir=""):
     if is_databricks():
-        base = "/Volumes/tabular/dataexpert/delta_demo"
+        base = "/Volumes/tabular/default/delta_stock_pipeline"
     else:
         base = "./delta_tables"
         os.makedirs(base, exist_ok=True)

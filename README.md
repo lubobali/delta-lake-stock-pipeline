@@ -1,186 +1,100 @@
-# Homework: Debugging & Fixing a Poorly Partitioned Stock Data Pipeline
+# Delta Lake Stock Pipeline
 
-**Date:** February 20, 2026
-**Covers:** Day 1 (Delta Lake Fundamentals) & Day 2 (Unity Catalog, Partitioning, External Tables)
+Stock market data pipeline built with PySpark and Delta Lake. Ingests minute-level OHLCV data from Polygon.io for 8 major tickers, writes to a properly partitioned Delta table, runs table maintenance, and registers as an external table via Unity Catalog.
 
----
+## Architecture
 
-## TL;DR
+```
+Polygon.io API  →  PySpark  →  Delta Table (partitioned by ticker + trade_date)
+                                    ↓
+                              OPTIMIZE + Z-ORDER + VACUUM
+                                    ↓
+                              External Table (Unity Catalog)
+```
 
-You are given a broken PySpark script (`broken_stock_harvester.py`) that fetches stock market data from the Massive.com API and writes it to a Delta table. The script has **three critical bugs** related to data ingestion and partitioning. Your job is to:
+## What This Pipeline Does
 
-1. **Run the broken script** and observe the problems, make sure to consider rate limits of Massive.com
-2. **Identify and fix all three bugs** in a new script called `fixed_stock_harvester.py`
-3. **Run maintenance** on the corrected table (OPTIMIZE, VACUUM, health check) (or leverage liquid clustering)
-4. **Create an external table** that makes the cleaned stock data queryable via Unity Catalog (or simulate locally)
-5. **Write a short analysis** documenting what you found and why your fixes are correct
+1. **Data Ingestion** — Fetches minute-level OHLCV bars (open, high, low, close, volume, VWAP) from Polygon.io REST API for AAPL, MSFT, GOOGL, AMZN, TSLA, META, NVDA, JPM
+2. **Delta Table Storage** — Writes to a Delta table partitioned by `(ticker, trade_date)` with proper schema including derived `trade_date` column
+3. **Table Maintenance** — Runs OPTIMIZE with Z-ORDER on ticker and trade_date, VACUUM for storage cleanup, and before/after health checks
+4. **External Table** — Registers the Delta table in Unity Catalog so other teams can query by name without knowing file paths
 
----
+## Tech Stack
 
-## Background
+- **PySpark** — Distributed data processing
+- **Delta Lake** — ACID transactions, time travel, schema enforcement
+- **Polygon.io API** — Real-time and historical stock market data
+- **Unity Catalog** — Data governance and external table registration
+- **Databricks** — Cloud runtime (also runs locally)
 
-Your team ingests minute-level stock data from the [Massive.com Aggregates API](https://massive.com/docs/stocks/get_v2_aggs_ticker__stocksticker__range__multiplier___timespan___from___to) for a set of tickers (AAPL, MSFT, GOOGL, AMZN, TSLA, META, NVDA, JPM). A junior engineer wrote the initial harvester script, but the resulting Delta table is broken and unusable. Leadership has asked you to fix it.
+## Pipeline Scripts
 
-### API Details
+| Script | Description |
+|--------|-------------|
+| `fixed_stock_harvester.py` | Main pipeline — ingests stock data, writes partitioned Delta table |
+| `maintenance.py` | OPTIMIZE, Z-ORDER, VACUUM, before/after health check |
+| `external_table.py` | External table creation (Unity Catalog + local simulation) |
+| `analysis.md` | Technical writeup — bug diagnosis, partitioning strategy, managed vs external tables |
+| `databricks_utils.py` | Environment detection — auto-switches between local PySpark and Databricks |
 
-- **Endpoint:** `GET /v2/aggs/ticker/{ticker}/range/1/minute/{from}/{to}`
-- **API Key:** `Em7xrXc5QX01uQqD29xxTrVZXfrrjC6Q` (already embedded in starter code 
-- **Data returned:** OHLCV bars (open, high, low, close, volume) plus VWAP and transaction count
+## Key Design Decisions
 
----
+**Partitioning: `(ticker, trade_date)`** — 8 tickers x N trading days = predictable partition count. Stock queries almost always filter by ticker or date, so partition pruning kicks in naturally.
+
+**Rate Limiting** — Polygon.io has a 5 calls/minute limit. Pipeline adds 13s delay between API calls + automatic retry on 429 responses.
+
+**`trade_date` column** — Derived from raw `timestamp_ms` (epoch milliseconds) to enable clean time-based queries and partition pruning instead of casting on every query.
 
 ## Setup
 
-### Local Environment
-
+### Local
 ```bash
-cd delta-table-homework
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
+java -version  # PySpark requires Java 8 or 11
 ```
 
-Verify Java is available (`java -version`). PySpark requires Java 8 or 11.
+### Databricks
+Upload files to workspace or connect as Git Folder. `databricks_utils.py` auto-detects the environment.
 
-### Databricks Environment
-
-Upload the files to your workspace. The `databricks_utils.py` module auto-detects the environment and adjusts paths accordingly.
-
----
-
-## Part 1: Run the Broken Script & Diagnose (20 points)
-
-Run the starter code as-is:
+## Run
 
 ```bash
-python broken_stock_harvester.py
+# 1. Ingest stock data (~2 min due to rate limiting)
+python fixed_stock_harvester.py
+
+# 2. Run maintenance (OPTIMIZE + VACUUM + health check)
+python maintenance.py
+
+# 3. Create external table and run sample queries
+python external_table.py
 ```
 
-After it finishes, answer these questions in your `analysis.md` file:
+## Sample Output
 
-1. **How many tickers' data do you expect in the table? How many are actually present? Why?**
-2. **How many partition directories were created? Why is this a problem?**
-3. **What is missing from the schema that would make time-based queries practical?**
-
----
-
-## Part 2: Fix the Harvester (40 points)
-
-Create a new file called `fixed_stock_harvester.py` that corrects all three bugs:
-
-## Part 3: Table Maintenance (20 points)
-
-After your fixed harvester writes the corrected table, add a maintenance section to your script (or a separate `maintenance.py`) that does the following:
-
-### 3a. Run OPTIMIZE (5 points)
-
-Compact the table's files. If you chose traditional partitioning, run basic compaction. If you chose no partitioning, consider Z-ORDER on `ticker` and `trade_date`.
-
-```python
-delta_table = DeltaTable.forPath(spark, table_path)
-delta_table.optimize().executeCompaction()
-# OR with Z-ORDER:
-# delta_table.optimize().executeZOrderBy("ticker", "trade_date")
+```
+Rows per ticker:
++------+-----+
+|ticker|count|
++------+-----+
+|  AAPL| 1950|
+|  AMZN| 1950|
+|  GOOGL| 1950|
+|  JPM | 1950|
+|  META | 1950|
+|  MSFT | 1950|
+|  NVDA | 1950|
+|  TSLA | 1950|
++------+-----+
 ```
 
-### 3b. Run VACUUM (5 points)
+## Bugs Found and Fixed
 
-Clean up stale files. Use a 0-hour retention for this homework (production would use 168+ hours).
+The original pipeline (`broken_stock_harvester.py`) had 3 critical bugs:
 
-```python
-spark.sql(f"VACUUM delta.`{table_path}` RETAIN 0 HOURS")
-```
-
-### 3c. Health Check (10 points)
-
-Print a before/after comparison showing:
-- Number of data files before and after OPTIMIZE
-- Total table size
-- Row count (verify no data was lost)
-- Table history showing all operations
-
-You may adapt the `DeltaTableHealthCheck` class from the Day 1 `07_maintenance_best_practices.py` lecture, or write your own.
-
----
-
-## Part 4: Create an External Table (20 points)
-
-Make the corrected stock data available as an **external table** so that other teams can query it without knowing the underlying file path.
-
-### Databricks Environment (if available)
-
-Register the Delta table as an external table in Unity Catalog:
-
-```python
-CATALOG = "main"
-SCHEMA = "dataexpert"
-EXTERNAL_LOCATION = "<your-external-location>"  # e.g., use s3://zachwilsonsorganization-522/external
-
-spark.sql(f"USE CATALOG {CATALOG}")
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}")
-
-spark.sql(f"""
-    CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.stocks_external
-    USING DELTA
-    LOCATION '{EXTERNAL_LOCATION}/stocks_fixed'
-    COMMENT 'Fixed stock OHLCV data from Polygon.io — external table'
-""")
-```
-
-Then demonstrate querying through the catalog name:
-
-```python
-spark.sql(f"""
-    SELECT ticker, trade_date, COUNT(*) as bar_count,
-           MIN(low) as day_low, MAX(high) as day_high
-    FROM {CATALOG}.{SCHEMA}.stocks_external
-    GROUP BY ticker, trade_date
-    ORDER BY ticker, trade_date
-""").show(truncate=False)
-```
-
-### Local Environment (simulated)
-
-If you don't have Databricks, simulate the external table pattern by:
-
-1. Writing the fixed Delta table to a specific path (e.g., `./delta_tables/stocks_fixed`)
-2. Creating a second "reference" that reads from that path using `spark.read.format("delta").load(path)`
-3. Registering it as a temp view or SQL table:
-
-```python
-spark.sql(f"""
-    CREATE OR REPLACE TEMPORARY VIEW stocks_external
-    AS SELECT * FROM delta.`{fixed_table_path}`
-""")
-
-spark.sql("""
-    SELECT ticker, trade_date, COUNT(*) as bar_count,
-           MIN(low) as day_low, MAX(high) as day_high
-    FROM stocks_external
-    GROUP BY ticker, trade_date
-    ORDER BY ticker, trade_date
-""").show(truncate=False)
-```
-
-Either approach is acceptable. Document which you used and explain the difference between managed and external tables (reference Day 2, Lecture 03).
-
----
-
-## Deliverables
-
-| File | Description |
-|------|-------------|
-| `fixed_stock_harvester.py` | Your corrected harvester script with all three bugs fixed |
-| `maintenance.py` (or section in above) | OPTIMIZE, VACUUM, and health check code |
-| `external_table.py` (or section in above) | External table creation and sample queries |
-| `analysis.md` | Written answers to Part 1 questions + justification of your partitioning choice + managed vs. external table explanation |
-
----
-
-### Massive.com API Key
-
-The embedded key (`Em7xrXc5QX01uQqD29xxTrVZXfrrjC6Q`) is on the paid tier and performant:
-- If many students use it at the same time, we need to gracefully handle the rate limits
-- 5 API calls/minute
-- Delayed data (15-minute delay for free tier)
-- 5 years of historical data available
+| Bug | Problem | Fix |
+|-----|---------|-----|
+| Overwrite in loop | `mode("overwrite")` inside for loop — each ticker destroyed the previous, only last ticker survived | Collect all data first, write once |
+| Minute-level partitioning | `partitionBy("ticker", "minute")` created ~15,600 tiny partition directories | Changed to `partitionBy("ticker", "trade_date")` — ~40 partitions |
+| No date column | Only raw `timestamp_ms` (epoch ms) — time queries required casting every time | Derived `trade_date` column from timestamp_ms |

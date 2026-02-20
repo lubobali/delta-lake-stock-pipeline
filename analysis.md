@@ -5,7 +5,7 @@
 
 ---
 
-## Part 1: Diagnosis
+## Diagnosis
 
 ### 1. How many tickers data do you expect? How many are actually there? Why?
 
@@ -17,7 +17,7 @@ The reason is because the script uses `mode("overwrite")` inside the for loop. S
 
 The script partitions by `("ticker", "minute")` where minute is formatted like `2026-02-18_09-30`. For 5 days of stock data thats around 1,950 minutes per ticker (6.5 market hours per day x 60 minutes x 5 days). With 8 tickers that could be up to 15,600 partition directories. Though because of bug 1 only JPM survives so we see around 1,950.
 
-This is a huge problem because its the small file problem from Day 1 lecture. Every partition directory has one tiny parquet file maybe a few KB. Delta Lake is designed for files around 1 GB not 1 KB. When you have thousands of tiny files:
+This is the small file problem. Every partition directory has one tiny parquet file maybe a few KB. Delta Lake is designed for files around 1 GB not 1 KB. When you have thousands of tiny files:
 - Reading is slow because Spark has to open and close each file
 - The metadata in `_delta_log` gets bloated tracking all these files
 - The parquet headers and footers are bigger than the actual data inside
@@ -34,7 +34,7 @@ Thats ugly and also Spark cant use partition pruning on it. With a proper `trade
 
 ---
 
-## Part 2: What I Fixed
+## What I Fixed
 
 **Fix 1 — Collect all tickers then write once.** Instead of writing inside the loop with overwrite I collect bars from all 8 tickers into one big list first. Then I create one DataFrame and write it one time. All 8 tickers are preserved.
 
@@ -47,11 +47,11 @@ df.withColumn("trade_date", to_date((col("timestamp_ms") / 1000).cast("timestamp
 
 Now you have a clean date column that works with partition pruning and is easy to query.
 
-**Bonus — Rate limiting.** I added a 13 second delay between API calls because the Polygon API has a 5 calls per minute limit. The broken script had no delay at all so it would fail if many students hit the API at the same time. I also added retry logic for 429 (rate limit) responses.
+**Bonus — Rate limiting.** I added a 13 second delay between API calls because the Polygon API has a 5 calls per minute limit. The broken script had no delay at all so it would fail under concurrent usage. I also added retry logic for 429 (rate limit) responses.
 
 ---
 
-## Why I Chose This Partitioning
+## Partitioning Strategy
 
 I went with traditional partitioning by `(ticker, trade_date)` because:
 
@@ -75,4 +75,4 @@ Liquid clustering could also work here and its a cool feature but since we also 
 
 For the stock data I would use an external table in production. Stock data is shared across many teams (trading, risk, analytics). If someone accidentally drops the table only the catalog entry goes away but the actual parquet files are still safe at the external location. Thats the whole point of external tables — you separate the catalog metadata from the actual data ownership.
 
-I ran this locally so I used the simulated approach with a temporary view. On Databricks I would create a real external table in Unity Catalog so other teams can query `tabular.dataexpert.stocks_external` without knowing where the files actually live.
+I ran this locally so I used the simulated approach with a temporary view. On Databricks I would create a real external table in Unity Catalog so other teams can query it by name without knowing where the files actually live.

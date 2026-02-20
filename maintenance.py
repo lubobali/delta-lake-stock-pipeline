@@ -2,12 +2,12 @@
 Stock Table Maintenance
 =======================
 
-Part 3: Run maintenance on the corrected stock table.
-- 3a: OPTIMIZE (compaction with Z-ORDER on ticker + trade_date)
-- 3b: VACUUM (0 hours for homework, 168+ in production)
-- 3c: Health check with before/after comparison
+Run maintenance on the corrected stock Delta table.
+- OPTIMIZE with Z-ORDER on ticker + trade_date
+- VACUUM (0 hours for demo, 168+ in production)
+- Before/after health check comparison
 
-Adapted from Day 1 lecture 07_maintenance_best_practices.py
+Implements Delta Lake maintenance best practices
 """
 
 import os
@@ -141,7 +141,7 @@ def main():
     # 3b: VACUUM
     # =========================================================================
     print("\n" + "-" * 60)
-    print("3b: RUNNING VACUUM (0 hours retention — homework only!)")
+    print("3b: RUNNING VACUUM (0 hours retention — demo only, use 168+ in production)")
     print("-" * 60)
 
     start = time.time()

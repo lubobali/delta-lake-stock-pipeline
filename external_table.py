@@ -2,19 +2,19 @@
 External Table Creation
 =======================
 
-Part 4: Make the corrected stock data queryable as an external table.
+Make the corrected stock data queryable as an external table.
 
 Supports both environments:
 - Databricks: Creates an external table in Unity Catalog
 - Local: Simulates with a temporary view registered via SQL
 
-Difference between managed and external tables (Day 2, Lecture 03):
-- Managed table: Databricks owns both the metadata AND the data files.
+Managed vs External tables:
+- Managed: Databricks owns both metadata AND data files.
   DROP TABLE deletes everything (metadata + data).
-- External table: Databricks owns only the metadata. Data files live at
+- External: Databricks owns only metadata. Data files live at
   an external LOCATION you control (S3, ADLS, GCS, local path).
   DROP TABLE removes the catalog entry but data files remain untouched.
-  This is ideal for sharing data across teams without giving up ownership.
+  Ideal for sharing data across teams without giving up ownership.
 """
 
 from delta import DeltaTable
@@ -25,7 +25,7 @@ from databricks_utils import get_spark, get_base_path, stop_spark_if_local, is_d
 def create_external_table_databricks(spark, fixed_table_path):
     """Create an external table in Unity Catalog (Databricks environment)."""
     CATALOG = "tabular"
-    SCHEMA = "dataexpert"
+    SCHEMA = "stocks"
 
     print(f"Creating external table in {CATALOG}.{SCHEMA}...")
 
