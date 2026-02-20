@@ -157,6 +157,9 @@ def main():
     print("RUNNING VACUUM (0 hours retention — demo only, use 168+ in production)")
     print("-" * 60)
 
+    # Disable retention check so we can VACUUM at 0 hours for demo
+    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+
     start = time.time()
     if is_databricks():
         spark.sql(f"VACUUM {UC_TABLE} RETAIN 0 HOURS")
