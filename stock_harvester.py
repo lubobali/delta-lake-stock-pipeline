@@ -84,14 +84,14 @@ def fetch_stock_data(ticker, from_date, to_date):
     for bar in data.get("results", []):
         results.append({
             "ticker": ticker,
-            "open": bar.get("o"),
-            "high": bar.get("h"),
-            "low": bar.get("l"),
-            "close": bar.get("c"),
-            "volume": bar.get("v"),
-            "vwap": bar.get("vw"),
-            "timestamp_ms": bar.get("t"),
-            "num_transactions": bar.get("n"),
+            "open": float(bar["o"]) if bar.get("o") is not None else None,
+            "high": float(bar["h"]) if bar.get("h") is not None else None,
+            "low": float(bar["l"]) if bar.get("l") is not None else None,
+            "close": float(bar["c"]) if bar.get("c") is not None else None,
+            "volume": int(bar["v"]) if bar.get("v") is not None else None,
+            "vwap": float(bar["vw"]) if bar.get("vw") is not None else None,
+            "timestamp_ms": int(bar["t"]) if bar.get("t") is not None else None,
+            "num_transactions": int(bar["n"]) if bar.get("n") is not None else None,
         })
 
     return results
